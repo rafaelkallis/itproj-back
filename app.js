@@ -12,6 +12,8 @@ var schedule = require('node-schedule');
 const max_n_repositories = 50;
 const max_n_db_connections = 50;
 
+Object.values = Object.values || ((obj) => Object.keys(obj).map(key => obj[key]));
+
 // app.get('/', (req, res) => { //TODO
 //     res.send('Hello World!');
 // });
@@ -61,72 +63,18 @@ req.on('error', (e) => {
 req.end();
 
 function onRequestEnd(chunks) {
-    new Promise((ful, rej) => {
-        ful(Buffer.concat(chunks));
-    }).then((big_chunk) => {
-        return big_chunk.toString();
-    }).then((stringified) => {
-        return '[' + stringified.replace(/\n/g, ",").substr(0, stringified.length - 1) + ']';
-    }).then((array) => {
-        return JSON.parse(array);
-    }).then((events) => {
-        var filtered = [];
-        async.filter(events, (event, callback) => {
-            callback(null, event.type == 'PushEvent');
-        }, (err, res) => {
-            filtered = res;
-        });
-        return filtered;
-    }).then((push_events) => {
-        var repository_commits = [];
-        async.map(push_events, (push_event, callback) => {
-            callback(null, {
-                repo: push_event.repo.name,
-                n_commits: push_event.payload.size,
-                commits: push_event.payload.commits
-            })
-        }, (err, res) => {
-            repository_commits = res;
-        });
-        return repository_commits;
-    }).then((repository_commits) => {
-        return groupBy(repository_commits, (elem) => {
-            return elem.repo;
-        });
-    }).then((commit_groups) => {
-        var repositories = [];
-        async.map(commit_groups, (group, callback) => {
-            async.reduce(group, {               // <- 11 SIGENV, exit code 139
-                repo: '',
-                n_commits: 0,
-                commits: []
-            }, (prev, cur, callback) => {
-                callback(null, {
-                    repo: cur.repo,
-                    n_commits: prev.n_commits + cur.n_commits,
-                    commits: prev.commits.concat(cur.commits)
-                });
-            }, (err, sum) => {
-                callback(null, sum);
-            });
-        }, (err, res) => {
-            repositories = res;
-            console.log('passed');
-        });
-        return repositories;
-    }).then((repositories) => {
-        var sorted_repositories = [];
-        async.sortBy(repositories, function (repository, callback) {
-            callback(null, repository.n_commits * -1);
-        }, function (err, res) {
-            sorted_repositories = res;
-        });
-        return sorted_repositories;
-    }).then((sorted_repositories) => {
-        return sorted_repositories.slice(0, max_n_repositories);
-    }).then((top_50_repositories) => {
-        //persist repositories
-        // async.mapLimit(top_50_repositories, max_n_db_connections, (repository, callback) => {
+    let stringified = stringifyChunks(chunks);
+    let validJSON = genValidJSON(stringified);
+    let events = JSON.parse(validJSON);
+    let push_events = filterPushEvents(events);
+    let repository_commits = getRepositoryCommits(push_events);
+    let repositories = reduceCommits(repository_commits);
+    let rep_sort_by_n_commits_desc = repositories.sort((repo1, repo2) => {
+        return repo2.commits.length - repo1.commits.length;
+    });
+    let top_reps = rep_sort_by_n_commits_desc.slice(0, max_n_repositories);
+    top_rep_by_n_commits_desc.forEach((repository) => {
+        //TODO persist
         //     pool.connect(function (err, client, done) {
         //         if (err) {
         //             return console.error('error fetching client from pool', err);
@@ -139,19 +87,55 @@ function onRequestEnd(chunks) {
         //             }
         //         });
         //     });
-        // });
-        return top_50_repositories;
+    });
+}
+
+function stringifyChunks(chunks) {
+    return Buffer.concat(chunks).toString();
+}
+
+function genValidJSON(invalidJSON) {
+    return '[' + invalidJSON.replace(/\n/g, ",").substr(0, invalidJSON.length - 1) + ']';
+}
+
+function filterPushEvents(events) {
+    return events.filter((event) => {
+        return event.type == 'PushEvent';
+    });
+}
+
+function getRepositoryCommits(push_events) {
+    return push_events.map((push_event) => {
+        return {
+            repo: push_event.repo.name,
+            commits: push_event.payload.commits
+        };
     });
 }
 
 function groupBy(array, getKey) {
-    var groups = {};
-    async.map(array, (elem, callback) => {
-        var key = getKey(elem);
+    let groups = {};
+    array.forEach((elem) => {
+        let key = getKey(elem);
         groups[key] && (groups[key] = groups[key].concat(elem)) || (groups[key] = [elem]);
-        callback();
     });
     return groups;
+}
+
+function reduceCommits(repository_commits) {
+    return Object.values(groupBy(repository_commits, (commit) => {
+        return commit.repo;
+    }))
+        .map((group) => {
+            let reduced = {
+                repo: group[0].repo,
+                commits: []
+            };
+            group.forEach(group => {
+                reduced.commits = reduced.commits.concat(group.commits);
+            });
+            return reduced;
+        });
 }
 
 app.listen(8080);
