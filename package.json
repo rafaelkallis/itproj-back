@@ -14,6 +14,7 @@
     "express": "^4.14.0",
     "node-schedule": "^1.1.1",
     "pg": "^6.1.0",
+    "pg-transaction": "^1.0.4",
     "request": "^2.75.0"
   }
 }

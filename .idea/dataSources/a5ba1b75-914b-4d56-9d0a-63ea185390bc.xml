@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<dataSource name="PostgreSQL - it_proj_db@rafaelkallis.com">
+  <database-model serializer="dbm" rdbms="POSTGRES" format-version="2.6">
+    <database id="1" name="it_proj_db">
+      <object-id>32772</object-id>
+      <visible>1</visible>
+    </database>
+    <database id="2" name="postgres">
+      <object-id>12379</object-id>
+    </database>
+    <database id="3" name="github_trending">
+      <object-id>16384</object-id>
+    </database>
+    <database id="4" name="github_crawler_db">
+      <object-id>24580</object-id>
+    </database>
+    <schema id="5" parent="1" name="public">
+      <object-id>2200</object-id>
+      <visible>1</visible>
+      <introspection-state-number>97776</introspection-state-number>
+      <introspection-timestamp>2016-10-01.01:23:57.473</introspection-timestamp>
+    </schema>
+    <schema id="6" parent="1" name="pg_catalog">
+      <object-id>11</object-id>
+    </schema>
+    <schema id="7" parent="1" name="pg_toast">
+      <object-id>99</object-id>
+    </schema>
+    <schema id="8" parent="1" name="pg_temp_1">
+      <object-id>11816</object-id>
+    </schema>
+    <schema id="9" parent="1" name="pg_toast_temp_1">
+      <object-id>11817</object-id>
+    </schema>
+    <schema id="10" parent="1" name="information_schema">
+      <object-id>12087</object-id>
+    </schema>
+    <table id="11" parent="5" name="commits">
+      <object-id>32977</object-id>
+      <state-number>97776</state-number>
+    </table>
+    <table id="12" parent="5" name="repository">
+      <object-id>32972</object-id>
+      <state-number>97776</state-number>
+    </table>
+    <table id="13" parent="5" name="user">
+      <object-id>32967</object-id>
+      <state-number>97775</state-number>
+    </table>
+    <column id="14" parent="11" name="repository_name">
+      <state-number>97773</state-number>
+      <mandatory>1</mandatory>
+      <data-type>varchar(100)|0</data-type>
+    </column>
+    <column id="15" parent="11" name="user_hashed_email">
+      <state-number>97773</state-number>
+      <mandatory>1</mandatory>
+      <data-type>char(40)|0</data-type>
+    </column>
+    <column id="16" parent="11" name="n_commits">
+      <state-number>97773</state-number>
+      <mandatory>1</mandatory>
+      <data-type>integer|0</data-type>
+    </column>
+    <index id="17" parent="11" name="commits_pkey">
+      <object-id>32980</object-id>
+      <columns>repository_name
+user_hashed_email</columns>
+      <desc-columns></desc-columns>
+      <unique>1</unique>
+    </index>
+    <key id="18" parent="11" name="commits_pkey">
+      <object-id>32981</object-id>
+      <columns>repository_name
+user_hashed_email</columns>
+      <underlying-index>commits_pkey</underlying-index>
+      <primary>1</primary>
+    </key>
+    <foreign-key id="19" parent="11" name="commits_repository_name_fk">
+      <object-id>32987</object-id>
+      <columns>repository_name</columns>
+      <ref-key>~.repository.repository_pkey</ref-key>
+      <cascade-update-rule>restrict</cascade-update-rule>
+      <cascade-delete-rule>restrict</cascade-delete-rule>
+    </foreign-key>
+    <foreign-key id="20" parent="11" name="commits_user_hashed_email_fk">
+      <object-id>32982</object-id>
+      <columns>user_hashed_email</columns>
+      <ref-key>~.user.user_pkey</ref-key>
+      <cascade-update-rule>restrict</cascade-update-rule>
+      <cascade-delete-rule>restrict</cascade-delete-rule>
+    </foreign-key>
+    <column id="21" parent="12" name="name">
+      <state-number>97771</state-number>
+      <mandatory>1</mandatory>
+      <data-type>varchar(100)|0</data-type>
+    </column>
+    <column id="22" parent="12" name="n_commits">
+      <state-number>97771</state-number>
+      <mandatory>1</mandatory>
+      <data-type>integer|0</data-type>
+    </column>
+    <index id="23" parent="12" name="repository_pkey">
+      <object-id>32975</object-id>
+      <columns>name</columns>
+      <desc-columns></desc-columns>
+      <unique>1</unique>
+    </index>
+    <key id="24" parent="12" name="repository_pkey">
+      <object-id>32976</object-id>
+      <columns>name</columns>
+      <underlying-index>repository_pkey</underlying-index>
+      <primary>1</primary>
+    </key>
+    <column id="25" parent="13" name="hashed_email">
+      <state-number>97769</state-number>
+      <mandatory>1</mandatory>
+      <data-type>char(40)|0</data-type>
+    </column>
+    <column id="26" parent="13" name="any_commit_sha">
+      <state-number>97769</state-number>
+      <mandatory>1</mandatory>
+      <data-type>char(40)|0</data-type>
+    </column>
+    <index id="27" parent="13" name="user_pkey">
+      <object-id>32970</object-id>
+      <columns>hashed_email</columns>
+      <desc-columns></desc-columns>
+      <unique>1</unique>
+    </index>
+    <key id="28" parent="13" name="user_pkey">
+      <object-id>32971</object-id>
+      <columns>hashed_email</columns>
+      <underlying-index>user_pkey</underlying-index>
+      <primary>1</primary>
+    </key>
+  </database-model>
+</dataSource>
