@@ -10,11 +10,10 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "async": "^2.0.1",
-    "express": "^4.14.0",
+    "bluebird": "^3.4.6",
+    "log-timestamp": "^0.1.2",
     "node-schedule": "^1.1.1",
     "pg": "^6.1.0",
-    "pg-transaction": "^1.0.4",
-    "request": "^2.75.0"
+    "pg-transaction": "^1.0.4"
   }
 }

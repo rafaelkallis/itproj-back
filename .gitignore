@@ -1,4 +1,9 @@
 # Created by .ignore support plugin (hsz.mobi)
+
+### macOS
+.DS_Store
+
+
 ### Node template
 # Logs
 logs
