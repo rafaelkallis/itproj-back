@@ -160,11 +160,29 @@ function onRequestEnd(hourlyCommits) {
             !(err = tx_err) && tx.query(`DELETE FROM "repository"; DELETE FROM "user"; DELETE FROM "commits";`, (tx_err) => err = tx_err);
             !err && persist_days && tx.query(`DELETE FROM "hourly_commits" WHERE timestamp < NOW() - INTERVAL '$1 days';`, [persist_days], (tx_err) => err = tx_err);
             !err && console.log(`deleted outdated data`);
-            !err && tx.query(`INSERT INTO "commits" (SELECT repository_name,user_hashed_email,SUM(n_commits) FROM "hourly_commits" GROUP BY repository_name,user_hashed_email);`, (tx_err) => err = tx_err);
-            !err && console.log(`updated commits`);
-            !err && tx.query(`INSERT INTO "repository" (SELECT repository_name,SUM(n_commits) FROM "commits" GROUP BY repository_name);`, (tx_err) => err = tx_err);
+            !err && tx.query(`  INSERT INTO "repository" (
+                                    SELECT reduced.repository_name,reduced.n_commits FROM (
+                                        SELECT repository_name,SUM(n_commits) AS n_commits 
+                                        FROM "hourly_commits" GROUP BY repository_name
+                                    ) AS reduced
+                                    ORDER BY n_commits DESC LIMIT 50
+                                );`, (tx_err) => err = tx_err);
             !err && console.log(`updated repository`);
-            !err && tx.query(`INSERT INTO "user" (SELECT user_hashed_email,SUM(n_commits) FROM "commits" GROUP BY user_hashed_email);`, (tx_err) => err = tx_err);
+            !err && tx.query(`  INSERT INTO "commits" (
+                                    SELECT repository_name,user_hashed_email,SUM(n_commits) FROM (
+                                        SELECT repository_name,user_hashed_email,SUM(hourly_commits.n_commits) FROM 
+                                            "hourly_commits" JOIN (SELECT name FROM "repository") AS top_repository ON hourly_commits.repository_name = top_repository.name
+                                        GROUP BY repository_name,user_hashed_email
+                                    )
+                                );`, (tx_err) => err = tx_err);
+            !err && console.log(`updated commits`);
+            !err && tx.query(`  INSERT INTO "user" (
+                                    SELECT user_hashed_email,SUM(n_commits) FROM (
+                                        SELECT user_hashed_email,SUM(n_commits) FROM 
+                                            "commits" 
+                                        GROUP BY user_hashed_email
+                                    )
+                                );`, (tx_err) => err = tx_err);
             !err && console.log(`updated user`);
             if (err) {
                 tx.rollback(() => {
@@ -175,7 +193,7 @@ function onRequestEnd(hourlyCommits) {
                 tx.commit((err) => {
                     client.end();
                     err && console.error(err);
-                    !err && console.log(`transaction commited`);
+                    !err && console.log(`transaction committed`);
                 });
             }
         });
