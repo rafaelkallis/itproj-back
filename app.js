@@ -4,16 +4,15 @@
 require('log-timestamp');
 let http = require('http');
 let zlib = require('zlib');
-var Transaction = require('pg-transaction');
 var schedule = require('node-schedule');
 var async = require('async');
 var Pool = require('pg').Pool;
 var JSONStream = require('JSONStream');
 const max_days_of_data = process.env.MAX_DAYS || 7;
-const max_top_repositories = process.env.MAX_TOP_REPOSITORIES || 50;
+const max_top_repositories = process.env.MAX_TOP_REPOSITORIES || 500;
 const port = process.env.PORT || 8080;
 const hostname = `data.githubarchive.org`;
-const db_chunk_size = 3000;
+const db_chunk_size = 10000;
 const db_pool_size = 10;
 const pgConfig = {
     user: process.env.POSTGRES_USERNAME || 'postgres',
@@ -25,16 +24,18 @@ const pgConfig = {
     idleTimeoutMillis: 30000
 };
 
+Object.values = Object.values || ((obj) => Object.keys(obj).map(key => obj[key]));
+
 let pool = new Pool(pgConfig);
 
 pool.connect((err, client, done) => {
     err && console.error('error connecting client', err);
     !err && client.query(`
-    CREATE TABLE IF NOT EXISTS "repository"(
+    CREATE TABLE IF NOT EXISTS "repositories"(
         name VARCHAR(128) PRIMARY KEY NOT NULL,
         n_commits INTEGER NOT NULL
     ); 
-    CREATE TABLE IF NOT EXISTS "user"(
+    CREATE TABLE IF NOT EXISTS "users"(
         hashed_email CHAR(40) PRIMARY KEY NOT NULL,
         any_commit_sha CHAR(40) NOT NULL
     );
@@ -58,10 +59,10 @@ pool.connect((err, client, done) => {
 });
 
 
-schedule.scheduleJob('0 0 * * * *', () => {
+schedule.scheduleJob('0 30 * * * *', () => {
     console.log(`starting hourly update job`);
-    updateJob();
 });
+updateJob(); //TODO
 
 function updateJob() {
     let server_req = http.request({
@@ -100,7 +101,7 @@ let queryDb = (table, callback) => {
         }
         client.query(`SELECT * FROM "${table}"`, (queryError, result) => {
             done();
-            if (err) {
+            if (queryError) {
                 callback(queryError, null);
                 return;
             }
@@ -124,10 +125,10 @@ let respond = (response, queryError, queryResult) => {
 let server = http.createServer((request, response) => {
     switch (request.url) {
         case '/repositories':
-            queryDb('repository', (err, result) => respond(response, err, result));
+            queryDb('repositories', (err, result) => respond(response, err, result));
             break;
         case '/users':
-            queryDb('user', (err, result) => respond(response, err, result));
+            queryDb('users', (err, result) => respond(response, err, result));
             break;
         case '/rels':
             queryDb('commits', (err, result) => respond(response, err, result));
@@ -140,68 +141,63 @@ let server = http.createServer((request, response) => {
 console.log(`listening on port ${port}`);
 server.listen(port);
 
-Object.values = Object.values || ((obj) => Object.keys(obj).map(key => obj[key]));
 
 /**
  * Gets executed after successful execution
  * @param hourlyCommits
  */
 function onRequestEnd(hourlyCommits) {
-    console.log(`mapped requests successfully`);
-    hourlyCommits = reduceCommits(hourlyCommits);
-    console.log(`reduced commits successfully`);
     pool.connect((err, client, done) => {
-        if (err) {
+        let rollback = (err) => {
+            client.query('ROLLBACK', (tx_err) => done);
             console.error(err);
-            return;
-        }
-        let tx = new Transaction(client);
-        let hourlyCommitQueries = generateHourlyCommitQueries(tx, hourlyCommits);
-        console.log(`generated commit insert statements successfully`);
-        hourlyCommits = null;
-        tx.begin((tx_err) => err = tx_err);
-        !err && console.log(`transaction begun`);
-        !err && async.series(hourlyCommitQueries, (tx_err) => {
-            !(err = tx_err) && tx.query(`DELETE FROM "repository"; DELETE FROM "user"; DELETE FROM "commits";`, (tx_err) => err = tx_err);
-            !err && tx.query(`DELETE FROM "hourly_commits" WHERE timestamp < NOW() - INTERVAL '$1 days';`, [max_days_of_data], (tx_err) => err = tx_err);
-            !err && console.log(`deleted outdated data`);
-            !err && tx.query(`  INSERT INTO "repository" (
-                                    SELECT reduced.repository_name,reduced.n_commits FROM (
-                                        SELECT repository_name,SUM(n_commits) AS n_commits 
-                                        FROM "hourly_commits" GROUP BY repository_name
-                                    ) AS reduced
-                                    ORDER BY n_commits DESC LIMIT $1
-                                );`, [max_top_repositories], (tx_err) => err = tx_err);
-            !err && console.log(`updated repository`);
-            !err && tx.query(`  INSERT INTO "commits" (
-                                    SELECT repository_name,user_hashed_email,SUM(n_commits) FROM (
-                                        SELECT repository_name,user_hashed_email,SUM(hourly_commits.n_commits) FROM 
-                                            "hourly_commits" JOIN (SELECT name FROM "repository") AS top_repository ON hourly_commits.repository_name = top_repository.name
-                                        GROUP BY repository_name,user_hashed_email
-                                    )
-                                );`, (tx_err) => err = tx_err);
-            !err && console.log(`updated commits`);
-            !err && tx.query(`  INSERT INTO "user" (
-                                    SELECT user_hashed_email,SUM(n_commits) FROM (
-                                        SELECT user_hashed_email,SUM(n_commits) FROM 
-                                            "commits" 
+        };
+        err ? console.error(err) || done() : console.log(`beginning transaction`) || client.query('BEGIN', (tx_err) =>
+            (err = tx_err) ? rollback(err) : console.log(`deleting outdated hourly commits`) & client.query(`DELETE FROM "hourly_commits" WHERE timestamp < NOW() - INTERVAL '${max_days_of_data} days'`, (tx_err) =>
+                (err = tx_err) ? rollback(err) : console.log(`inserting new hourly commits`) & async.series(generateHourlyCommitQueries(client, reduceCommits(hourlyCommits)), (tx_err) =>
+                    (err = tx_err) ? rollback(err) : console.log(`deleting outdated records`) & client.query(`DELETE FROM "repositories"; DELETE FROM "users"; DELETE FROM "commits";`, (tx_err) =>
+                        (err = tx_err) ? rollback(err) : console.log(`inserting new records into "repository"`) & client.query(`  
+                            INSERT INTO "repositories" (
+                                SELECT
+                                    repository_name,
+                                    SUM(n_commits) AS n_commits
+                                FROM "hourly_commits"
+                                GROUP BY repository_name
+                                ORDER BY n_commits DESC
+                                LIMIT ${max_top_repositories}
+                            );`, (tx_err) =>
+                            (err = tx_err) ? rollback(err) : console.log(`inserting new records into "commits"`) & client.query(`  
+                                INSERT INTO "commits" (
+                                    SELECT 
+                                        repository_name,
+                                        user_hashed_email,
+                                        SUM(hourly_commits.n_commits) 
+                                    FROM "hourly_commits" 
+                                    JOIN (
+                                        SELECT 
+                                            name 
+                                        FROM "repositories") AS top_repository 
+                                        ON hourly_commits.repository_name = top_repository.name
+                                    GROUP BY repository_name,user_hashed_email
+                                )`, (tx_err) =>
+                                (err = tx_err) ? rollback(err) : console.log(`inserting new records into "user"`) & client.query(` 
+                                    INSERT INTO "users" (
+                                        SELECT 
+                                            user_hashed_email,
+                                            SUM(n_commits)
+                                        FROM "commits" 
                                         GROUP BY user_hashed_email
+                                    )`, (tx_err) =>
+                                    (err = tx_err) ? rollback(err) : console.log('committing transaction') & client.query('COMMIT', (tx_err) =>
+                                        (err = tx_err) ? console.error(`transaction commit failed`) & done(err) : console.log(`transaction commit successful`) & done()
                                     )
-                                );`, (tx_err) => err = tx_err);
-            !err && console.log(`updated user`);
-            if (err) {
-                tx.rollback(() => {
-                    done();
-                    console.error(err);
-                });
-            } else {
-                tx.commit((err) => {
-                    done();
-                    err && console.error(err);
-                    !err && console.log(`transaction committed`);
-                });
-            }
-        });
+                                )
+                            )
+                        )
+                    )
+                )
+            )
+        );
     });
 }
 
@@ -234,24 +230,19 @@ function reduceCommits(repositoryCommits) {
                 n_commits: 0
             };
             group.forEach((commit) => reduced.n_commits += commit.n_commits);
-            if (reduced.repository_name.length > 100) {
-                console.log(reduced.repository_name.length);
-            }
             return reduced;
         });
 }
 
 /**
  * Generates the SQL insert statement execution functions
- * @param tx
+ * @param client
  * @param commits
  * @returns {Array|*}
  */
-function generateHourlyCommitQueries(tx, commits) {
+function generateHourlyCommitQueries(client, commits) {
     return generateInsertStatements(commits.map((commit) => [commit.repository_name, commit.user_hashed_email, commit.n_commits]), 'hourly_commits')
-        .map((query_args) => (callback) => {
-            tx.query(query_args.query, query_args.args, (err) => callback(err));
-        });
+        .map((query_args) => (callback) => client.query(query_args.query, query_args.args, (err) => err ? callback(err) : callback()))
 }
 
 /**
