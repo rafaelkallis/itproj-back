@@ -60,8 +60,8 @@ pool.connect((err, client, done) => {
 
 schedule.scheduleJob('0 0 * * * *', () => {
     console.log(`starting hourly update job`);
-});
     updateJob();
+});
 
 function updateJob() {
     let server_req = http.request({
@@ -113,7 +113,11 @@ let respond = (response, queryError, queryResult) => {
         response.writeHead(500);
         response.end();
     } else {
-        response.writeHead(200, {'Content-Type': 'application/json'});
+        response.writeHead(200, {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Headers': "Origin, X-Requested-With, Content-Type, Accept"
+        });
         response.end(JSON.stringify(queryResult.rows));
     }
 };
@@ -230,7 +234,7 @@ function reduceCommits(repositoryCommits) {
                 n_commits: 0
             };
             group.forEach((commit) => reduced.n_commits += commit.n_commits);
-            if(reduced.repository_name.length > 100){
+            if (reduced.repository_name.length > 100) {
                 console.log(reduced.repository_name.length);
             }
             return reduced;
