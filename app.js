@@ -9,8 +9,10 @@ var schedule = require('node-schedule');
 var async = require('async');
 var Pool = require('pg').Pool;
 var JSONStream = require('JSONStream');
-const max_days_of_data = process.env.POSTGRES_MAX_DAYS;
+const max_days_of_data = process.env.MAX_DAYS || 7;
+const max_top_repositories = process.env.MAX_TOP_REPOSITORIES || 50;
 const port = process.env.PORT || 8080;
+const hostname = `data.githubarchive.org`;
 const db_chunk_size = 3000;
 const db_pool_size = 10;
 const pgConfig = {
@@ -29,7 +31,7 @@ pool.connect((err, client, done) => {
     err && console.error('error connecting client', err);
     !err && client.query(`
     CREATE TABLE IF NOT EXISTS "repository"(
-        name VARCHAR(100) PRIMARY KEY NOT NULL,
+        name VARCHAR(128) PRIMARY KEY NOT NULL,
         n_commits INTEGER NOT NULL
     ); 
     CREATE TABLE IF NOT EXISTS "user"(
@@ -37,13 +39,13 @@ pool.connect((err, client, done) => {
         any_commit_sha CHAR(40) NOT NULL
     );
     CREATE TABLE IF NOT EXISTS "commits"(
-        repository_name VARCHAR(100) NOT NULL,
+        repository_name VARCHAR(128) NOT NULL,
         user_hashed_email CHAR(40) NOT NULL,
         n_commits INTEGER NOT NULL,
         CONSTRAINT commits_pkey PRIMARY KEY (repository_name, user_hashed_email)
     );
     CREATE TABLE IF NOT EXISTS "hourly_commits"(
-        repository_name VARCHAR(100) NOT NULL,
+        repository_name VARCHAR(128) NOT NULL,
         user_hashed_email CHAR(40) NOT NULL,
         n_commits INTEGER,
         timestamp TIMESTAMP DEFAULT now(),
@@ -56,9 +58,10 @@ pool.connect((err, client, done) => {
 });
 
 
-schedule.scheduleJob('0 0 * * * *', () => { //TODO
-    updateJob();
+schedule.scheduleJob('0 0 * * * *', () => {
+    console.log(`starting hourly update job`);
 });
+    updateJob();
 
 function updateJob() {
     let server_req = http.request({
@@ -95,7 +98,7 @@ let queryDb = (table, column_sort, limit, callback) => {
             callback(err);
             return;
         }
-        client.query(`SELECT * FROM "${table}" ORDER BY n_commits DESC ${limit ? 'LIMIT '}`, (queryError, result) => {
+        client.query(`SELECT * FROM "${table}"`, (queryError, result) => {
             done();
             if (err) {
                 callback(queryError, null);
@@ -115,7 +118,6 @@ let respond = (response, queryError, queryResult) => {
     }
 };
 let server = http.createServer((request, response) => {
-    console.log('347');
     switch (request.url) {
         case '/repositories':
             queryDb('repository', (err, result) => respond(response, err, result));
@@ -131,7 +133,7 @@ let server = http.createServer((request, response) => {
             response.end();
     }
 });
-
+console.log(`listening on port ${port}`);
 server.listen(port);
 
 Object.values = Object.values || ((obj) => Object.keys(obj).map(key => obj[key]));
@@ -144,8 +146,7 @@ function onRequestEnd(hourlyCommits) {
     console.log(`mapped requests successfully`);
     hourlyCommits = reduceCommits(hourlyCommits);
     console.log(`reduced commits successfully`);
-    let client = new Client(pgConfig);
-    client.connect((err) => {
+    pool.connect((err, client, done) => {
         if (err) {
             console.error(err);
             return;
@@ -158,15 +159,15 @@ function onRequestEnd(hourlyCommits) {
         !err && console.log(`transaction begun`);
         !err && async.series(hourlyCommitQueries, (tx_err) => {
             !(err = tx_err) && tx.query(`DELETE FROM "repository"; DELETE FROM "user"; DELETE FROM "commits";`, (tx_err) => err = tx_err);
-            !err && persist_days && tx.query(`DELETE FROM "hourly_commits" WHERE timestamp < NOW() - INTERVAL '$1 days';`, [persist_days], (tx_err) => err = tx_err);
+            !err && tx.query(`DELETE FROM "hourly_commits" WHERE timestamp < NOW() - INTERVAL '$1 days';`, [max_days_of_data], (tx_err) => err = tx_err);
             !err && console.log(`deleted outdated data`);
             !err && tx.query(`  INSERT INTO "repository" (
                                     SELECT reduced.repository_name,reduced.n_commits FROM (
                                         SELECT repository_name,SUM(n_commits) AS n_commits 
                                         FROM "hourly_commits" GROUP BY repository_name
                                     ) AS reduced
-                                    ORDER BY n_commits DESC LIMIT 50
-                                );`, (tx_err) => err = tx_err);
+                                    ORDER BY n_commits DESC LIMIT $1
+                                );`, [max_top_repositories], (tx_err) => err = tx_err);
             !err && console.log(`updated repository`);
             !err && tx.query(`  INSERT INTO "commits" (
                                     SELECT repository_name,user_hashed_email,SUM(n_commits) FROM (
@@ -186,12 +187,12 @@ function onRequestEnd(hourlyCommits) {
             !err && console.log(`updated user`);
             if (err) {
                 tx.rollback(() => {
-                    client.end();
+                    done();
                     console.error(err);
                 });
             } else {
                 tx.commit((err) => {
-                    client.end();
+                    done();
                     err && console.error(err);
                     !err && console.log(`transaction committed`);
                 });
@@ -229,6 +230,9 @@ function reduceCommits(repositoryCommits) {
                 n_commits: 0
             };
             group.forEach((commit) => reduced.n_commits += commit.n_commits);
+            if(reduced.repository_name.length > 100){
+                console.log(reduced.repository_name.length);
+            }
             return reduced;
         });
 }
