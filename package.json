@@ -1,6 +1,6 @@
 {
   "name": "itproj-back",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "description": "Backend for the IT Projektmanagement lecture's project",
   "main": "app.js",
   "scripts": {
@@ -15,7 +15,6 @@
     "log-timestamp": "^0.1.2",
     "node-schedule": "^1.1.1",
     "pg": "^6.1.0",
-    "pg-query-stream": "^1.0.0",
-    "pg-transaction": "^1.0.4"
+    "pg-query-stream": "^1.0.0"
   }
 }
