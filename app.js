@@ -92,7 +92,7 @@ function updateJob() {
     console.log(`request sent`);
 }
 
-let queryDb = (table, column_sort, limit, callback) => {
+let queryDb = (table, callback) => {
     pool.connect((err, client, done) => {
         if (err) {
             callback(err);
