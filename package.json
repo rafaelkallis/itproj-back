@@ -10,10 +10,13 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "JSONStream": "^1.2.1",
+    "async": "^2.0.1",
     "bluebird": "^3.4.6",
     "log-timestamp": "^0.1.2",
     "node-schedule": "^1.1.1",
     "pg": "^6.1.0",
+    "pg-query-stream": "^1.0.0",
     "pg-transaction": "^1.0.4"
   }
 }

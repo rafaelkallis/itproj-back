@@ -4,7 +4,10 @@
  */
 var http = require('http');
 var bluebird = require('bluebird');
-var paths = process.env.PATHS || [];
+var zlib = require('zlib');
+var async = require('async');
+const hostname = `data.githubarchive.org`;
+const paths = process.env.PATHS.split(',');
 
 function filterPushEvents(events) {
     return events.filter((event) => {
@@ -14,12 +17,12 @@ function filterPushEvents(events) {
 function mapDistinctRepositoryCommits(push_events) {
     return push_events.map((push_event) => {
         return {
-            repo: push_event.repo.name,
+            repo: push_event.repository_name.name,
             commits: push_event.payload.commits
                 .filter((commit) => commit.distinct)
                 .map((commit) => {
                     return {
-                        repo: push_event.repo.name,
+                        repo: push_event.repository_name.name,
                         sha: commit.sha,
                         authorEmailSha: commit.author.email.substr(0, 40)
                     }
@@ -27,10 +30,9 @@ function mapDistinctRepositoryCommits(push_events) {
         };
     });
 }
-function fetchData(paths, callback) {
-    const hostname = `data.githubarchive.org`;
-    let zlib = require('zlib');
-    bluebird.all(paths.map((path) => new Promise((resolve, reject) => {
+
+function generateRequest(path) {
+    return (callback) => {
         let server_req = http.request({
             hostname: hostname,
             path: path
@@ -38,6 +40,7 @@ function fetchData(paths, callback) {
             let chunks = [];
             let pipe = response.pipe(zlib.createGunzip());
             pipe.on('data', (chunk) => {
+                console.log(chunk.toString());
                 chunks.push(chunk);
             });
             pipe.on('end', () => {
@@ -81,7 +84,7 @@ function fetchData(paths, callback) {
                     pid: process.pid,
                     type: 'log',
                     level: 'log',
-                    payload: `reduced request repostiory commits successfully`
+                    payload: `reduced request repository commits successfully`
                 });
                 process.send({
                     pid: process.pid,
@@ -89,16 +92,20 @@ function fetchData(paths, callback) {
                     level: 'log',
                     payload: `ended processing request response`
                 });
-                resolve(partReducedRepositoryCommits);
+                callback(partReducedRepositoryCommits);
             });
         });
         server_req.on('error', (err) => {
             process.send({pid: process.pid, type: 'log', level: 'error', payload: `request failed`});
-            reject(err);
+            callback(err, null);
         });
         server_req.end();
         process.send({pid: process.pid, type: 'log', level: 'log', payload: `request sent`});
-    }))).then((arrayOfReducedRepositoryCommits) => {
+    }
+}
+
+function fetchData(paths, callback) {
+    async.series(paths.map((path) => generateRequest(path)), (err, arrayOfReducedRepositoryCommits) => {
         let reducedRepositoryCommits = reduceRepositories([].concat(...arrayOfReducedRepositoryCommits));
         arrayOfReducedRepositoryCommits = null;
         process.send({
@@ -110,16 +117,6 @@ function fetchData(paths, callback) {
         callback(reducedRepositoryCommits);
     });
 }
-
-fetchData(paths, (data) => {
-    process.send({
-        pid: process.pid,
-        type: 'fetchDataSuccess',
-        data: data
-    });
-});
-
-process.send({pid: process.pid, type: 'log', level: 'log', payload: `started fetching`});
 
 Object.values = Object.values || ((obj) => Object.keys(obj).map(key => obj[key]));
 
@@ -145,11 +142,11 @@ function groupBy(array, getKey) {
  */
 function reduceRepositories(repository_commits) {
     return Object.values(groupBy(repository_commits, (commit) => {
-        return commit.repo;
+        return commit.repository_name;
     }))
         .map((group) => {
             let reduced = {
-                repo: group[0].repo,
+                repo: group[0].repository_name,
                 commits: []
             };
             group.forEach(group => {
@@ -158,3 +155,13 @@ function reduceRepositories(repository_commits) {
             return reduced;
         });
 }
+
+fetchData(paths, (data) => {
+    process.send({
+        pid: process.pid,
+        type: 'fetchDataSuccess',
+        data: data
+    });
+});
+
+process.send({pid: process.pid, type: 'log', level: 'log', payload: `started fetching`});
