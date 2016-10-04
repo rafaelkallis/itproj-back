@@ -339,6 +339,8 @@ if (cluster.isWorker) {
             response.writeHead(500);
             response.end();
         } else {
+            res.header("Access-Control-Allow-Origin", "*");
+            res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
             response.writeHead(200, {'Content-Type': 'application/json'});
             response.end(JSON.stringify(queryResult.rows));
         }
