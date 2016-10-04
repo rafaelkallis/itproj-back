@@ -3,26 +3,64 @@
  */
 
 require('log-timestamp');
-let http = require('http');
-let zlib = require('zlib');
+var http = require('http');
+var zlib = require('zlib');
 var schedule = require('node-schedule');
 var async = require('async');
 var Pool = require('pg').Pool;
 var JSONStream = require('JSONStream');
 var QueryStream = require('pg-query-stream');
 
+/**
+ * Number of days the fetched data stays in the database
+ * @type {any}
+ */
 const max_days_of_data = process.env.MAX_DAYS || 7;
+
+/**
+ * Number of repositories to consider in computation starting with the one with most commits
+ * @type {any}
+ */
 const max_top_repositories = process.env.MAX_TOP_REPOSITORIES || 500;
+
+/**
+ * Port to expose
+ * @type {any}
+ */
 const port = process.env.PORT || 8080;
+
+/**
+ * GitHub archive's hostname
+ * @type {string}
+ */
 const hostname = `data.githubarchive.org`;
+
+/**
+ * Number of elements included in each insert query into the database
+ * @type {number}
+ */
 const max_elements_per_insert_query = 5000;
+
+/**
+ * Endpoints for data
+ * @type {string}
+ */
 const repositories_endpoint = "/repositories";
 const users_endpoint = "/users";
 const commits_endpoint = "/rels";
+
+/**
+ * Database table names
+ * @type {string}
+ */
 const repositories_table = "repositories";
 const users_table = "users";
 const commits_table = "commits";
 const hourly_commits_table = "hourly_commits";
+
+/**
+ * Database connection pool
+ */
 const pool = new Pool({
     user: process.env.POSTGRES_USERNAME || 'postgres',
     database: process.env.POSTGRES_DATABASE || 'postgres',
@@ -35,8 +73,11 @@ const pool = new Pool({
 
 Object.values = Object.values || ((obj) => Object.keys(obj).map(key => obj[key]));
 
+/**
+ * Makes sure the tables exist in the database
+ */
 pool.connect((err, client, done) =>
-    err ? console.error('error connecting client', err) : client.query(`
+    err ? console.error('error connecting to database', err) && process.exit(1) : client.query(`
         CREATE TABLE IF NOT EXISTS "${repositories_table}"(
             name VARCHAR(128) PRIMARY KEY NOT NULL,
             n_commits INTEGER NOT NULL
@@ -61,11 +102,39 @@ pool.connect((err, client, done) =>
     )
 );
 
+/**
+ * Runs the updateJob every hour, on 30 minutes. e.g 11:30, 12:30, etc.
+ */
 schedule.scheduleJob('0 30 * * * *', () => {
     console.log(`starting hourly update job`);
     updateJob();
 });
 
+/**
+ * Launches the server
+ */
+http.createServer((request, response) => {
+    switch (request.url) {
+        case repositories_endpoint:
+            get(repositories_table, response);
+            break;
+        case users_endpoint:
+            get(users_table, response);
+            break;
+        case commits_endpoint:
+            get(commits_table, response);
+            break;
+        default:
+            response.writeHead(404);
+            response.end();
+    }
+}).listen(port);
+
+console.log(`listening on port ${port}`);
+
+/**
+ * Fetches data from the GitHub archive
+ */
 function updateJob() {
     let server_req = http.request({
         hostname: hostname,
@@ -95,6 +164,11 @@ function updateJob() {
     console.log(`request sent`);
 }
 
+/**
+ * Fetches the requested data from database and pipes it straight into the response
+ * @param table
+ * @param response
+ */
 function get(table, response) {
     pool.connect((err, client, done) => {
         response.setHeader('Access-Control-Allow-Origin', '*');
@@ -108,27 +182,8 @@ function get(table, response) {
     });
 }
 
-http.createServer((request, response) => {
-    switch (request.url) {
-        case repositories_endpoint:
-            get(repositories_table, response);
-            break;
-        case users_endpoint:
-            get(users_table, response);
-            break;
-        case commits_endpoint:
-            get(commits_table, response);
-            break;
-        default:
-            response.writeHead(404);
-            response.end();
-    }
-}).listen(port);
-
-console.log(`listening on port ${port}`);
-
 /**
- * Gets executed after successful execution
+ * Gets executed after successful fetching of GitHub archive data
  * Connects to database and adds newest hourly commits.
  * Recomputes the top x repositories by number of commits
  * Recomputes the authors of commits
