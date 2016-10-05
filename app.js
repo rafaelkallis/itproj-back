@@ -110,8 +110,8 @@ pool.connect((err, client, done) =>
  */
 schedule.scheduleJob('0 30 * * * *', () => {
     console.log(`starting hourly update job`);
+    updateJob();
 });
-updateJob();
 
 /**
  * Launches the server
