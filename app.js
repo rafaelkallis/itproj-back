@@ -114,8 +114,8 @@ pool.connect((err, client, done) =>
  */
 schedule.scheduleJob('0 30 * * * *', () => {
     console.log(`starting hourly update job`);
-    updateJob();
 });
+    updateJob();
 
 /**
  * Launches the server
@@ -281,7 +281,7 @@ function groupBy(array, getKey) {
  * @returns [{repository_name: <>, user_email_sha: <>, n_commits: <>}, ...]
  */
 function reduceCommits(repositoryCommits) {
-    return Object.values(groupBy(repositoryCommits, (commit) => commit.repository_name + commit.user_hashed_email))
+    return Object.values(groupBy(repositoryCommits, (commit) => commit.repository_name + commit.user_hashed_email + commit.user_name))
         .map((group) => {
             let reduced = {
                 repository_name: group[0].repository_name,
