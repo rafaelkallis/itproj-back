@@ -83,24 +83,28 @@ pool.connect((err, client, done) =>
             n_commits INTEGER NOT NULL
         ); 
         CREATE TABLE IF NOT EXISTS "${users_table}"(
-            hashed_email CHAR(40) PRIMARY KEY NOT NULL,
+            hashed_email CHAR(40) NOT NULL,
+            name VARCHAR(200) NOT NULL,
             any_commit_url VARCHAR(200) NOT NULL,
-            n_commits INTEGER NOT NULL
+            n_commits INTEGER NOT NULL,
+            CONSTRAINT ${users_table}_hashed_email_user_name_pk PRIMARY KEY (hashed_email, name)
         );
         CREATE TABLE IF NOT EXISTS "${commits_table}"(
             repository_name VARCHAR(128) NOT NULL,
             user_hashed_email CHAR(40) NOT NULL,
+            user_name VARCHAR(200),
             any_commit_url VARCHAR(200) NOT NULL,
             n_commits INTEGER NOT NULL,
-            CONSTRAINT commits_pk PRIMARY KEY (repository_name, user_hashed_email)
+            CONSTRAINT ${commits_table}_pk PRIMARY KEY (repository_name, user_hashed_email)
         );
         CREATE TABLE IF NOT EXISTS "${hourly_commits_table}"(
             repository_name VARCHAR(128) NOT NULL,
             user_hashed_email CHAR(40) NOT NULL,
+            user_name VARCHAR(200) NOT NULL,
             any_commit_url VARCHAR(200) NOT NULL,
             n_commits INTEGER,
             timestamp TIMESTAMP DEFAULT now(),
-            CONSTRAINT hourly_commits_repository_name_user_hashed_email_pk PRIMARY KEY (repository_name, user_hashed_email)
+            CONSTRAINT ${hourly_commits_table}_repository_name_user_hashed_email_pk PRIMARY KEY (repository_name, user_hashed_email)
         );`, (err) => done() && err ? console.error('error creating tables', err) : console.log('tables created')
     )
 );
@@ -151,6 +155,7 @@ function updateJob() {
                 .map((commit) => ({
                         repository_name: event.repo.name,
                         user_hashed_email: commit.author.email.substr(0, 40),
+                        user_name: commit.author.name,
                         url: `https://api.github.com/repos/${event.repo.name}/commits/${commit.sha}`,
                         n_commits: 1
                     })
@@ -219,6 +224,7 @@ function onRequestEnd(hourlyCommits) {
                                     SELECT 
                                         repository_name,
                                         user_hashed_email,
+                                        user_name,
                                         MIN(any_commit_url) as any_commit_url,
                                         SUM(hourly_commits.n_commits) AS n_commits
                                     FROM "${hourly_commits_table}" 
@@ -227,17 +233,18 @@ function onRequestEnd(hourlyCommits) {
                                             name 
                                         FROM "${repositories_table}") AS top_repository 
                                         ON ${hourly_commits_table}.repository_name = top_repository.name
-                                    GROUP BY repository_name,user_hashed_email
+                                    GROUP BY repository_name,user_hashed_email,user_name
                                     ORDER BY n_commits DESC
                                 )`, (tx_err) =>
                                 (err = tx_err) ? rollback(err) : console.log(`inserting new records into "${users_table}"`) & client.query(` 
                                     INSERT INTO "${users_table}" (
                                         SELECT 
                                             user_hashed_email,
+                                            user_name,
                                             MIN(any_commit_url) AS any_commit_url,
                                             SUM(n_commits) AS n_commits
                                         FROM "${commits_table}" 
-                                        GROUP BY user_hashed_email
+                                        GROUP BY user_hashed_email,user_name
                                         ORDER BY n_commits DESC
                                     )`, (tx_err) =>
                                     (err = tx_err) ? rollback(err) : console.log('committing transaction') & client.query('COMMIT', (tx_err) =>
@@ -279,6 +286,7 @@ function reduceCommits(repositoryCommits) {
             let reduced = {
                 repository_name: group[0].repository_name,
                 user_hashed_email: group[0].user_hashed_email,
+                user_name: group[0].user_name,
                 any_commit_url: group[0].url,
                 n_commits: 0
             };
@@ -294,7 +302,14 @@ function reduceCommits(repositoryCommits) {
  * @returns {Array|*}
  */
 function generateClientInsertFunction(client, commits) {
-    return generateInsertStatements(commits.map((commit) => [commit.repository_name, commit.user_hashed_email, commit.any_commit_url, commit.n_commits]), 'hourly_commits')
+    return generateInsertStatements(commits.map((commit) =>
+        [
+            commit.repository_name,
+            commit.user_hashed_email,
+            commit.user_name,
+            commit.any_commit_url,
+            commit.n_commits
+        ]), 'hourly_commits')
         .map((query_args) => (callback) => client.query(query_args.query, query_args.args, (err) => err ? callback(err) : callback()))
 }
 
