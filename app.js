@@ -95,7 +95,7 @@ pool.connect((err, client, done) =>
             user_name VARCHAR(200),
             any_commit_url VARCHAR(200) NOT NULL,
             n_commits INTEGER NOT NULL,
-            CONSTRAINT ${commits_table}_pk PRIMARY KEY (repository_name, user_hashed_email)
+            CONSTRAINT ${commits_table}_pk PRIMARY KEY (repository_name, user_hashed_email, user_name)
         );
         CREATE TABLE IF NOT EXISTS "${hourly_commits_table}"(
             repository_name VARCHAR(128) NOT NULL,
