@@ -104,7 +104,7 @@ pool.connect((err, client, done) =>
             any_commit_url VARCHAR(200) NOT NULL,
             n_commits INTEGER,
             timestamp TIMESTAMP DEFAULT now(),
-            CONSTRAINT ${hourly_commits_table}_repository_name_user_hashed_email_pk PRIMARY KEY (repository_name, user_hashed_email)
+            CONSTRAINT ${hourly_commits_table}_repository_name_user_hashed_email_user_name_pk PRIMARY KEY (repository_name, user_hashed_email, user_name)
         );`, (err) => done() && err ? console.error('error creating tables', err) : console.log('tables created')
     )
 );
@@ -112,7 +112,7 @@ pool.connect((err, client, done) =>
 /**
  * Runs the updateJob every hour, on 30 minutes. e.g 11:30, 12:30, etc.
  */
-schedule.scheduleJob('0 30 * * * *', () => {
+schedule.scheduleJob('0 15 * * * *', () => {
     console.log(`starting hourly update job`);
     updateJob();
 });
@@ -375,6 +375,6 @@ function generatePlaceholders(size, index) {
 function generatePath() {
     let addLeadingZero = (num) => num < 10 ? '0' + num.toString() : num.toString();
     let date = new Date();
-    date.setDate(date.getDate() - 1);
-    return `/${date.getFullYear()}-${addLeadingZero(date.getMonth() + 1)}-${addLeadingZero(date.getDate())}-${date.getHours()}.json.gz`;
+    date.setHours(date.getHours() -1);
+    return `/${date.getUTCFullYear()}-${addLeadingZero(date.getUTCMonth() + 1)}-${addLeadingZero(date.getUTCDate())}-${date.getUTCHours()}.json.gz`;
 }
