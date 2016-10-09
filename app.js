@@ -27,7 +27,7 @@ const max_top_repositories = process.env.MAX_TOP_REPOSITORIES || 200;
  * Port to expose
  * @type {any}
  */
-const port = process.env.PORT || 8080;
+const port = 8080;
 
 /**
  * GitHub archive's hostname
@@ -114,8 +114,8 @@ pool.connect((err, client, done) =>
  */
 schedule.scheduleJob('0 15 * * * *', () => {
     console.log(`starting hourly update job`);
-    updateJob();
 });
+    updateJob();
 
 /**
  * Launches the server
