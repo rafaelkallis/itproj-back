@@ -66,7 +66,7 @@ const pool = new Pool({
     database: process.env.POSTGRES_DATABASE || 'postgres',
     password: process.env.POSTGRES_PASSWORD || 'postgres',
     host: process.env.POSTGRES_HOST || 'localhost',
-    post: process.env.POSTGRES_PORT || 5432,
+    port: process.env.POSTGRES_PORT || 5432,
     max: process.env.POSTGRES_MAX_CONNECTIONS || 5,
     idleTimeoutMillis: 30000
 });
